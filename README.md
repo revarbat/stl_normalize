@@ -9,9 +9,12 @@ There are also problems with some programs outputting STL files that are not pro
 
 The stl\_normalize.py script is designed to be run from a Makefile or other build script, to normalize STL files, and verify whether the files are properly manifold. With the validation, you can force a build script to fail on a bad STL, and force the developer to tweak the model to fix the issue.  This script can (with the help of OpenSCAD) actually visually show you where the manifold problems are.
 
-This script does the following to normalizes STL files:
-* Rewrites the file in ASCII STL format.
+This script does the following to normalize STL files:
 * Reorders the triangle faces in a consistent physical ordering.
+* Reorders triangle vertex data in a consistent way.
+* Calculates any missing unit face normals.
+* Ensures vertex data is ordered counter-clockwise. (Right-hand rule.)
+* Rewrites the file in ASCII STL format.
 * Writes vertex coordinate data in a consistent compact way.
 
 
