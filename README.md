@@ -27,7 +27,7 @@ Positional argument | What it is
 INFILE              | Filename of STL file to read in.
 
 
-optional arguments             | What it does
+Optional arguments             | What it does
 ------------------------------ | ---------------------
 -h, --help                     | Show help message and exit
 -v, --verbose                  | Show verbose output.
