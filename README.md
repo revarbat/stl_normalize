@@ -19,16 +19,16 @@ Usage
 -----
 
 ```
-stl_normalize.py [-h] [-v] [-c] [-g] [-b] [-o OUT_FILE] INFILE
+stl_normalize.py [-h] [-v] [-c] [-g] [-b] [-o OUTFILE] INFILE
 ```
 
 Positional argument | What it is
-------------------- | ---------------------------------
+:------------------ | :--------------------------------
 INFILE              | Filename of STL file to read in.
 
 
 Optional arguments             | What it does
------------------------------- | ---------------------
+:----------------------------- | :--------------------
 -h, --help                     | Show help message and exit
 -v, --verbose                  | Show verbose output.
 -c, --check-manifold           | Perform manifold validation of model.
@@ -64,4 +64,5 @@ This will read in the file ```input.stl```, validate its manifoldness, and print
 stl_normalize.py -g input.stl
 ```
 This will validate the manifoldness of the file ```input.stl```, and, if there are any problems, launch OpenSCAD to display the non-manifold edges. Holes will be ringed in red. Redundant faces will be ringed in purple.
+
 
