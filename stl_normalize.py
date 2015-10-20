@@ -7,6 +7,7 @@ import math
 import time
 import struct
 import argparse
+import platform
 import itertools
 import subprocess
 
@@ -370,8 +371,12 @@ class StlData(object):
                 modulename=modulename,
                 filename=self.filename,
             ))
-        subprocess.call(['open', tmpfile])
-        time.sleep(5)
+        if platform.system() == 'Darwin':
+            subprocess.call(['open', tmpfile])
+            time.sleep(5)
+        else:
+            subprocess.call(['openscad', tmpfile])
+            time.sleep(5)
         os.remove(tmpfile)
 
     def _check_manifold_duplicate_faces(self):
