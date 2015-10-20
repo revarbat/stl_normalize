@@ -36,8 +36,8 @@ Optional arguments             | What it does
 -v, --verbose                  | Show verbose output.
 -c, --check-manifold           | Perform manifold validation of model.
 -g, --gui-display              | Show non-manifold edges in GUI. (using OpenSCAD)
--b, --use-binary               | Use binary STL format for output.
--o OUTFILE, --out-file OUTFILE | Write normalized STL to file.
+-b, --write-binary             | Use binary STL format for output.
+-o OUTFILE, --outfile OUTFILE  | Write normalized STL to file.
 
 
 Examples
