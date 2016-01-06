@@ -6,12 +6,14 @@ import sys
 import math
 import time
 import struct
+import numbers
 import argparse
 import platform
 import itertools
 import subprocess
 
 
+# Template OpenSCAD code for displaying non-manifold issues in GUI mode.
 guiscad_template = """\
 module showlines(clr, lines) {{
     for (line = lines) {{
@@ -47,60 +49,11 @@ color([0.0, 1.0, 0.0, 0.2]) import("{filename}", convexity=100);
 """
 
 
-def dot(a, b):
-    return sum(p*q for p, q in zip(a, b))
-
-
-def cross(a, b):
-    return [
-        a[1]*b[2] - a[2]*b[1],
-        a[2]*b[0] - a[0]*b[2],
-        a[0]*b[1] - a[1]*b[0]
-    ]
-
-
-def vsub(a, b):
-    return [i - j for i, j in zip(a, b)]
-
-
-def vsdiv(v, s):
-    return [x / s for x in v]
-
-
-def dist(v):
-    return math.sqrt(sum([x*x for x in v]))
-
-
-def normalize(v):
-    return vsdiv(v, dist(v))
-
-
-def is_clockwise(a, b, c, n):
-    return dot(n, cross(vsub(b, a), vsub(c, a))) < 0
-
-
-def point_cmp(p1, p2):
-    for i in [2, 1, 0]:
-        val = cmp(p1[i], p2[i])
-        if val != 0:
-            return val
-    return 0
-
-
-def facet_cmp(f1, f2):
-    cl1 = [sorted([p[i] for p in f1]) for i in range(3)]
-    cl2 = [sorted([p[i] for p in f2]) for i in range(3)]
-    for i in [2, 1, 0]:
-        for c1, c2 in itertools.izip_longest(cl1[i], cl2[i]):
-            if c1 is None:
-                return -1
-            val = cmp(c1, c2)
-            if val != 0:
-                return val
-    return 0
-
-
 def float_fmt(val):
+    """
+    Returns a short, clean floating point string representation.
+    Uneccessary trailing zeroes and decimal points are trimmed off.
+    """
     s = "%.4f" % val
     while len(s) > 1 and s[-1:] in '0.':
         if s[-1:] == '.':
@@ -112,104 +65,596 @@ def float_fmt(val):
     return s
 
 
-def vertex_fmt(vals):
-    return " ".join([float_fmt(v) for v in vals])
+class Vector(object):
+    """Class to represent an N dimentional vector."""
+
+    def __init__(self, *args):
+        self._values = []
+        if len(args) == 1:
+            val = args[0]
+            if isinstance(val, numbers.Real):
+                self._values = [val]
+                return
+            elif isinstance(val, numbers.Complex):
+                self._values = [val.real, val.imag]
+                return
+        else:
+            val = args
+        try:
+            for x in val:
+                if not isinstance(x, numbers.Real):
+                    raise TypeError('Expected sequence of real numbers.')
+                self._values.append(x)
+        except:
+            pass
+
+    def __iter__(self):
+        """Iterator generator for vector values."""
+        for idx in self._values:
+            yield idx
+
+    def __len__(self):
+        return len(self._values)
+
+    def __getitem__(self, idx):
+        """Given a vertex number, returns a vertex coordinate vector."""
+        return self._values[idx]
+
+    def __hash__(self):
+        """Returns hash value for vector coords"""
+        return hash(tuple(self._values))
+
+    def __eq__(self, other):
+        """Equality comparison for points."""
+        return self._values == other._values
+
+    def __cmp__(self, other):
+        """Compare points for sort ordering in an arbitrary heirarchy."""
+        longzip = itertools.izip_longest(self._values, other, fillvalue=0.0)
+        for v1, v2 in reversed(list(longzip)):
+            val = cmp(v1, v2)
+            if val != 0:
+                return val
+        return 0
+
+    def __sub__(self, v):
+        return Vector(i - j for i, j in zip(self._values, v))
+
+    def __rsub__(self, v):
+        return Vector(i - j for i, j in zip(v, self._values))
+
+    def __add__(self, v):
+        return Vector(i + j for i, j in zip(self._values, v))
+
+    def __radd__(self, v):
+        return Vector(i + j for i, j in zip(v, self._values))
+
+    def __div__(self, s):
+        """Divide each element in a vector by a scalar."""
+        return Vector(x / (s+0.0) for x in self._values)
+
+    def __mul__(self, s):
+        """Multiplies each element in a vector by a scalar."""
+        return Vector(x * s for x in self._values)
+
+    def __format__(self, fmt):
+        vals = [float_fmt(x) for x in self._values]
+        if "a" in fmt:
+            return "[{0}]".format(", ".join(vals))
+        if "s" in fmt:
+            return " ".join(vals)
+        if "b" in fmt:
+            return struct.pack('<%df' % len(self._values), *self._values)
+        return "({0})".format(", ".join(vals))
+
+    def __repr__(self):
+        return "<Vector: {0}>".format(self)
+
+    def __str__(self):
+        """Returns a standard array syntax string of the coordinates."""
+        return "{0:a}".format(self)
+
+    def dot(self, v):
+        """Dot (scalar) product of two vectors."""
+        return sum(p*q for p, q in zip(self, v))
+
+    def cross(self, v):
+        """
+        Cross (vector) product against another 3D Vector.
+        Returned 3D Vector will be perpendicular to both original 3D Vectors.
+        """
+        return Vector(
+            self._values[1]*v[2] - self._values[2]*v[1],
+            self._values[2]*v[0] - self._values[0]*v[2],
+            self._values[0]*v[1] - self._values[1]*v[0]
+        )
+
+    def length(self):
+        """Returns the length of the vector."""
+        return math.sqrt(sum(x*x for x in self._values))
+
+    def normalize(self):
+        """Normalizes the given vector to be unit-length."""
+        return self / self.length()
+
+    def angle(self, other):
+        """Returns angle in radians between this and another vector."""
+        return math.acos(self.dot(other) / (self.length() * other.length()))
 
 
-def vertex_fmt2(vals):
-    return "[" + (", ".join([float_fmt(v) for v in vals])) + "]"
+class Point3D(object):
+    """Class to represent a 3D Point."""
+
+    def __init__(self, *args):
+        self._values = [0.0, 0.0, 0.0]
+        if len(args) == 1:
+            val = args[0]
+            if isinstance(val, numbers.Real):
+                self._values = [val, 0.0, 0.0]
+                return
+            elif isinstance(val, numbers.Complex):
+                self._values = [val.real, val.imag, 0.0]
+                return
+        else:
+            val = args
+        try:
+            for i, x in enumerate(val):
+                if not isinstance(x, numbers.Real):
+                    raise TypeError('Expected sequence of real numbers.')
+                self._values[i] = x
+        except:
+            pass
+
+    def __iter__(self):
+        """Iterator generator for point values."""
+        for idx in range(3):
+            yield self[idx]
+
+    def __len__(self):
+        return 3
+
+    def __getitem__(self, idx):
+        """Given a vertex number, returns a vertex coordinate vector."""
+        if idx >= len(self._values):
+            return 0.0
+        return self._values[idx]
+
+    def __hash__(self):
+        """Returns hash value for point coords"""
+        return hash(tuple(self._values))
+
+    def __cmp__(self, p):
+        """Compare points for sort ordering in an arbitrary heirarchy."""
+        longzip = itertools.izip_longest(self._values, p, fillvalue=0.0)
+        for v1, v2 in reversed(list(longzip)):
+            val = cmp(v1, v2)
+            if val != 0:
+                return val
+        return 0
+
+    def __eq__(self, other):
+        """Equality comparison for points."""
+        return self._values == other._values
+
+    def __sub__(self, v):
+        return Point3D(self[i] - v[i] for i in range(3))
+
+    def __rsub__(self, v):
+        return Point3D(v[i] - self[i] for i in range(3))
+
+    def __add__(self, v):
+        return Vector(i + j for i, j in zip(self._values, v))
+
+    def __radd__(self, v):
+        return Vector(i + j for i, j in zip(v, self._values))
+
+    def __div__(self, s):
+        """Divide each element in a vector by a scalar."""
+        return Vector(x / s for x in self._values)
+
+    def __format__(self, fmt):
+        vals = [float_fmt(x) for x in self._values]
+        if "a" in fmt:
+            return "[{0}]".format(", ".join(vals))
+        if "s" in fmt:
+            return " ".join(vals)
+        if "b" in fmt:
+            return struct.pack('<3f', *self._values)
+        return "({0})".format(", ".join(vals))
+
+    def __repr__(self):
+        return "<Point3D: {0}>".format(self)
+
+    def __str__(self):
+        """Returns a standard array syntax string of the coordinates."""
+        return "{0:a}".format(self)
+
+    def distFromPoint(self, v):
+        """Returns the distance from another point."""
+        return math.sqrt(sum(pow(x1-x2, 2.0) for x1, x2 in zip(v, self)))
+
+    def distFromLine(self, pt, line):
+        """
+        Returns the distance of a 3d point from a line defined by a sequence
+        of two 3d points.
+        """
+        w = Vector(pt - line[0])
+        v = Vector(line[1]-line[0])
+        return v.normalize().cross(w).length()
 
 
-class PointCloud(object):
-    points = []
-    pointhash = {}
+class Point3DCache(object):
+    """Cache class for 3D Points."""
 
     def __init__(self):
-        self.points = []
-        self.pointhash = {}
-        self.minx = 9e9
-        self.miny = 9e9
-        self.minz = 9e9
-        self.maxx = -9e9
-        self.maxy = -9e9
-        self.maxz = -9e9
+        """Initialize as an empty cache."""
+        self.point_hash = {}
+        self.minx = 9e99
+        self.miny = 9e99
+        self.minz = 9e99
+        self.maxx = -9e99
+        self.maxy = -9e99
+        self.maxz = -9e99
 
-    def update_volume(self, x, y, z):
-        if x < self.minx:
-            self.minx = x
-        if x > self.maxx:
-            self.maxx = x
-        if y < self.miny:
-            self.miny = y
-        if y > self.maxy:
-            self.maxy = y
-        if z < self.minz:
-            self.minz = z
-        if z > self.maxz:
-            self.maxz = z
+    def __len__(self):
+        """Length of sequence."""
+        return len(self.point_hash)
 
-    def add_or_get_point(self, x, y, z):
-        pt = (
-            round(x, 4),
-            round(y, 4),
-            round(z, 4),
-        )
-        key = "%.4f %.4f %.4f" % pt
-        if key in self.pointhash:
-            return self.pointhash[key]
-        idx = len(self.points)
-        self.pointhash[key] = idx
-        self.points.append(pt)
-        self.update_volume(x, y, z)
-        return idx
+    def _update_volume(self, p):
+        """Update the volume cube that contains all the points."""
+        if p[0] < self.minx:
+            self.minx = p[0]
+        if p[0] > self.maxx:
+            self.maxx = p[0]
+        if p[1] < self.miny:
+            self.miny = p[1]
+        if p[1] > self.maxy:
+            self.maxy = p[1]
+        if p[2] < self.minz:
+            self.minz = p[2]
+        if p[2] > self.maxz:
+            self.maxz = p[2]
 
-    def point_coords(self, idx):
-        return self.points[idx]
-
-    def facet_coords(self, facet):
+    def get_volume(self):
+        """Returns the 3D volume that contains all the points in the cache."""
         return (
-            self.point_coords(facet[0]),
-            self.point_coords(facet[1]),
-            self.point_coords(facet[2]),
+            self.minx, self.miny, self.minz,
+            self.maxx, self.maxy, self.maxz
         )
+
+    def add(self, x, y, z):
+        """Given XYZ coords, returns the (new or cached) Point3D instance."""
+        key = tuple(round(n, 4) for n in [x, y, z])
+        if key in self.point_hash:
+            return self.point_hash[key]
+        pt = Point3D(key)
+        self.point_hash[key] = pt
+        self._update_volume(pt)
+        return pt
+
+    def __iter__(self):
+        """Creates an iterator for the points in the cache."""
+        for pt in self.point_hash.values():
+            yield pt
+
+
+class LineSegment3D(object):
+    """A class to represent a 3D line segment."""
+
+    def __init__(self, p1, p2):
+        """Initialize with twwo endpoints."""
+        if p1 > p2:
+            p1, p2 = (p2, p1)
+        self.p1 = p1
+        self.p2 = p2
+        self.count = 1
+
+    def __len__(self):
+        """Line segment always has two endpoints."""
+        return 2
+
+    def __iter__(self):
+        """Iterator generator for endpoints."""
+        yield self.p1
+        yield self.p2
+
+    def __getitem__(self, idx):
+        """Given a vertex number, returns a vertex coordinate vector."""
+        if idx == 0:
+            return self.p1
+        if idx == 1:
+            return self.p2
+        raise LookupError()
+
+    def __hash__(self):
+        """Returns hash value for endpoints"""
+        return hash((self.p1, self.p2))
+
+    def __cmp__(self, p):
+        """Compare points for sort ordering in an arbitrary heirarchy."""
+        val = cmp(self[0], p[0])
+        if val != 0:
+            return val
+        return cmp(self[1], p[1])
+
+    def __format__(self, fmt):
+        """Provides .format() support."""
+        pfx = ""
+        sep = " - "
+        sfx = ""
+        if "a" in fmt:
+            pfx = "["
+            sep = ", "
+            sfx = "]"
+        elif "s" in fmt:
+            pfx = ""
+            sep = " "
+            sfx = ""
+        p1 = self.p1.__format__(fmt)
+        p2 = self.p2.__format__(fmt)
+        return pfx + p1 + sep + p2 + sfx
+
+    def __repr__(self):
+        """Standard string representation."""
+        return "<LineSegment3D: {0}>".format(self)
+
+    def __str__(self):
+        """Returns a human readable coordinate string."""
+        return "{0:a}".format(self)
+
+    def length(self):
+        """Returns the length of the line."""
+        return self.p1.distFromPoint(self.p2)
+
+
+class LineSegment3DCache(object):
+    """Cache class for 3D Line Segments."""
+
+    def __init__(self):
+        """Initialize as an empty cache."""
+        self.endhash = {}
+        self.seghash = {}
+
+    def _add_endpoint(self, p, seg):
+        if p not in self.endhash:
+            self.endhash[p] = []
+        self.endhash[p].append(seg)
+
+    def endpoint_segments(self, p):
+        if p not in self.endhash:
+            return []
+        return self.endhash[p]
+
+    def get(self, p1, p2):
+        """Given 2 endpoints, return the cached LineSegment3D inst, if any."""
+        key = (p1, p2) if p1 < p2 else (p2, p1)
+        if key not in self.seghash:
+            return None
+        return self.seghash[key]
+
+    def add(self, p1, p2):
+        """Given 2 endpoints, return the (new or cached) LineSegment3D inst."""
+        key = (p1, p2) if p1 < p2 else (p2, p1)
+        if key in self.seghash:
+            seg = self.seghash[key]
+            seg.count += 1
+            return seg
+        seg = LineSegment3D(p1, p2)
+        self.seghash[key] = seg
+        self._add_endpoint(p1, seg)
+        self._add_endpoint(p2, seg)
+        return seg
+
+    def __iter__(self):
+        """Creates an iterator for the line segments in the cache."""
+        for pt in self.seghash.values():
+            yield pt
+
+    def __len__(self):
+        """Length of sequence."""
+        return len(self.seghash)
+
+
+class Facet3D(object):
+    """Class to represent a 3D triangular face."""
+
+    def __init__(self, v1, v2, v3, norm):
+        for x in [v1, v2, v3, norm]:
+            try:
+                n = len(x)
+            except:
+                n = 0
+            if n != 3:
+                raise TypeError('Expected 3D vector.')
+            for y in x:
+                if not isinstance(y, numbers.Real):
+                    raise TypeError('Expected 3D vector.')
+        verts = [
+            Point3D(v1),
+            Point3D(v2),
+            Point3D(v3)
+        ]
+        # Re-order vertices in a normalized order.
+        while verts[0] > verts[1] or verts[0] > verts[2]:
+            verts = verts[1:] + verts[:1]
+        self.vertices = verts
+        self.norm = Vector(norm)
+        self.count = 1
+        self.fixup_normal()
+
+    def __len__(self):
+        """Length of sequence.  Three vertices and a normal."""
+        return 4
+
+    def __getitem__(self, idx):
+        """Get vertices and normal by index."""
+        lst = self.vertices + [self.norm]
+        return lst[idx]
+
+    def __hash__(self):
+        """Returns hash value for facet"""
+        return hash((self.verts, self.norm))
+
+    def __cmp__(self, other):
+        """Compare faces for sorting in an arbitrary heirarchy."""
+        cl1 = [sorted(v[i] for v in self.vertices) for i in range(3)]
+        cl2 = [sorted(v[i] for v in other.vertices) for i in range(3)]
+        for i in reversed(range(3)):
+            for c1, c2 in itertools.izip_longest(cl1[i], cl2[i]):
+                if c1 is None:
+                    return -1
+                val = cmp(c1, c2)
+                if val != 0:
+                    return val
+        return 0
+
+    def __format__(self, fmt):
+        """Provides .format() support."""
+        pfx = ""
+        sep = " - "
+        sfx = ""
+        if "a" in fmt:
+            pfx = "["
+            sep = ", "
+            sfx = "]"
+        elif "s" in fmt:
+            pfx = ""
+            sep = " "
+            sfx = ""
+        ifx = sep.join(n.__format__(fmt) for n in list(self)[0:3])
+        return pfx + ifx + sfx
+
+    def is_clockwise(self):
+        """
+        Returns true if the three vertices of the face are in clockwise
+        order with respect to the normal vector.
+        """
+        v1 = Vector(self.vertices[1]-self.vertices[0])
+        v2 = Vector(self.vertices[2]-self.vertices[0])
+        return self.norm.dot(v1.cross(v2)) < 0
+
+    def fixup_normal(self):
+        if self.norm.length() > 0:
+            # Make sure vertex ordering is counter-clockwise,
+            # relative to the outward facing normal.
+            if self.is_clockwise():
+                self.vertices = [
+                    self.vertices[0],
+                    self.vertices[2],
+                    self.vertices[1]
+                ]
+        else:
+            # If no normal was specified, we should calculate it, relative
+            # to the counter-clockwise vertices (as seen from outside).
+            v1 = Vector(self.vertices[2] - self.vertices[0])
+            v2 = Vector(self.vertices[1] - self.vertices[0])
+            self.norm = v1.cross(v2)
+            if self.norm.length() > 1e-6:
+                self.norm = self.norm.normalize()
+
+
+class Facet3DCache(object):
+    """Cache class for 3D Facets."""
+
+    def __init__(self):
+        """Initialize as an empty cache."""
+        self.vertex_hash = {}
+        self.edge_hash = {}
+        self.facet_hash = {}
+
+    def _add_vertex(self, pt, facet):
+        """Remember that a given vertex touches a given facet."""
+        if pt not in self.vertex_hash:
+            self.vertex_hash[pt] = []
+        self.vertex_hash[pt].append(facet)
+
+    def _add_edge(self, p1, p2, facet):
+        """Remember that a given edge touches a given facet."""
+        if p1 > p2:
+            edge = (p1, p2)
+        else:
+            edge = (p2, p1)
+        if edge not in self.edge_hash:
+            self.edge_hash[edge] = []
+        self.edge_hash[edge].append(facet)
+
+    def vertex_facets(self, pt):
+        """Returns the facets that have a given facet."""
+        if pt not in self.vertex_hash:
+            return []
+        return self.vertex_hash[pt]
+
+    def edge_facets(self, p1, p2):
+        """Returns the facets that have a given edge."""
+        if p1 > p2:
+            edge = (p1, p2)
+        else:
+            edge = (p2, p1)
+        if edge not in self.edge_hash:
+            return []
+        return self.edge_hash[edge]
+
+    def get(self, p1, p2, p3):
+        """Given 3 vertices, return the cached Facet3D instance, if any."""
+        key = (p1, p2, p3)
+        if key not in self.facet_hash:
+            return None
+        return self.facet_hash[key]
+
+    def add(self, p1, p2, p3, norm):
+        """
+        Given 3 vertices and a norm, return the (new or cached) Facet3d inst.
+        """
+        key = (p1, p2, p3)
+        if key in self.facet_hash:
+            facet = self.facet_hash[key]
+            facet.count += 1
+            return facet
+        facet = Facet3D(p1, p2, p3, norm)
+        self.facet_hash[key] = facet
+        self._add_edge(p1, p2, facet)
+        self._add_edge(p2, p3, facet)
+        self._add_edge(p3, p1, facet)
+        self._add_vertex(p1, facet)
+        self._add_vertex(p2, facet)
+        self._add_vertex(p3, facet)
+        return facet
+
+    def sorted(self):
+        """Returns a sorted iterator."""
+        vals = self.facet_hash.values()
+        for pt in sorted(vals):
+            yield pt
+
+    def __iter__(self):
+        """Creates an iterator for the facets in the cache."""
+        for pt in self.facet_hash.values():
+            yield pt
+
+    def __len__(self):
+        """Length of sequence."""
+        return len(self.facet_hash)
 
 
 class StlEndOfFileException(Exception):
+    """Exception class for reaching the end of the STL file while reading."""
     pass
 
 
 class StlMalformedLineException(Exception):
+    """Exception class for malformed lines in the STL file being read."""
     pass
 
 
 class StlData(object):
+    """Class to read, write, and validate STL file data."""
+
     def __init__(self):
-        self.points = PointCloud()
-        self.facets = []
-        self.edgehash = {}
-        self.facehash = {}
+        """Initialize with empty data set."""
+        self.points = Point3DCache()
+        self.edges = LineSegment3DCache()
+        self.facets = Facet3DCache()
         self.filename = ""
-
-    def _mark_edge(self, vertex1, vertex2):
-        edge = [vertex1, vertex2]
-        edge.sort()
-        edge = tuple(edge)
-        if edge not in self.edgehash:
-            self.edgehash[edge] = 0
-        self.edgehash[edge] += 1
-        return self.edgehash[edge]
-
-    def _mark_face(self, vertex1, vertex2, vertex3):
-        self._mark_edge(vertex1, vertex2)
-        self._mark_edge(vertex2, vertex3)
-        self._mark_edge(vertex3, vertex1)
-        face = [vertex1, vertex2, vertex3]
-        face.sort()
-        face = tuple(face)
-        if face not in self.facehash:
-            self.facehash[face] = 0
-        self.facehash[face] += 1
-        return self.facehash[face]
 
     def _read_ascii_line(self, f, watchwords=None):
         line = f.readline(1024)
@@ -229,7 +674,7 @@ class StlData(object):
 
     def _read_ascii_vertex(self, f):
         point = self._read_ascii_line(f, watchwords='vertex')
-        return self.points.add_or_get_point(*point)
+        return self.points.add(*point)
 
     def _read_ascii_facet(self, f):
         while True:
@@ -247,14 +692,14 @@ class StlData(object):
                     continue  # zero area facet.  Skip to next facet.
                 if vertex3 == vertex1:
                     continue  # zero area facet.  Skip to next facet.
-
             except StlEndOfFileException:
                 return None
-
             except StlMalformedLineException:
                 continue  # Skip to next facet.
-
-            return (vertex1, vertex2, vertex3, normal)
+            self.edges.add(vertex1, vertex2)
+            self.edges.add(vertex2, vertex3)
+            self.edges.add(vertex3, vertex1)
+            return self.facets.add(vertex1, vertex2, vertex3, normal)
 
     def _read_binary_facet(self, f):
         data = struct.unpack('<3f 3f 3f 3f H', f.read(4*4*3+2))
@@ -262,34 +707,13 @@ class StlData(object):
         vertex1 = data[3:6]
         vertex2 = data[6:9]
         vertex3 = data[9:12]
-        v1 = self.points.add_or_get_point(*vertex1)
-        v2 = self.points.add_or_get_point(*vertex2)
-        v3 = self.points.add_or_get_point(*vertex3)
-        return (v1, v2, v3, normal)
-
-    def sort_facet(self, facet):
-        v1, v2, v3, norm = facet
-        p1 = self.points.point_coords(v1)
-        p2 = self.points.point_coords(v2)
-        p3 = self.points.point_coords(v3)
-        if dist(norm) > 0:
-            # Make sure vertex ordering is counter-clockwise,
-            # relative to the outward facing normal.
-            if is_clockwise(p1, p2, p3, norm):
-                v1, v3, v2 = (v1, v2, v3)
-                p1, p3, p2 = (p1, p2, p3)
-        else:
-            # If no normal was specified, we should calculate it, relative
-            # to the counter-clockwise vertices (as seen from outside).
-            norm = cross(vsub(p3, p1), vsub(p2, p1))
-            if dist(norm) > 1e-6:
-                norm = normalize(norm)
-        cmp23 = point_cmp(p2, p3)
-        if point_cmp(p1, p2) > 0 and cmp23 < 0:
-            return (v2, v3, v1, norm)
-        if point_cmp(p1, p3) > 0 and cmp23 > 0:
-            return (v3, v1, v2, norm)
-        return (v1, v2, v3, norm)
+        v1 = self.points.add(*vertex1)
+        v2 = self.points.add(*vertex2)
+        v3 = self.points.add(*vertex3)
+        self.edges.add(v1, v2)
+        self.edges.add(v2, v3)
+        self.edges.add(v3, v1)
+        return self.facets.add(v1, v2, v3, normal)
 
     def read_file(self, filename):
         self.filename = filename
@@ -298,26 +722,52 @@ class StlData(object):
             if line == "":
                 return  # End of file.
             if line[0:6].lower() == "solid ":
-                while True:
-                    facet = self._read_ascii_facet(f)
-                    if facet is None:
-                        break
-                    facet = self.sort_facet(facet)
-                    vertex1, vertex2, vertex3, normal = facet
-                    self.facets.append(facet)
-                    self._mark_face(vertex1, vertex2, vertex3)
+                # Reading ASCII STL file.
+                while self._read_ascii_facet(f) is not None:
+                    pass
             else:
+                # Reading Binary STL file.
                 chunk = f.read(4)
                 facets = struct.unpack('<I', chunk)[0]
-                while facets > 0:
-                    facets -= 1
-                    facet = self._read_binary_facet(f)
-                    if facet is None:
+                for n in xrange(facets):
+                    if self._read_binary_facet(f) is None:
                         break
-                    facet = self.sort_facet(facet)
-                    vertex1, vertex2, vertex3, normal = facet
-                    self.facets.append(facet)
-                    self._mark_face(vertex1, vertex2, vertex3)
+
+    def _write_ascii_file(self, filename):
+        with open(filename, 'wb') as f:
+            f.write("solid Model\n")
+            for facet in self.facets.sorted():
+                f.write(
+                    "  facet normal {norm:s}\n"
+                    "    outer loop\n"
+                    "      vertex {v0:s}\n"
+                    "      vertex {v1:s}\n"
+                    "      vertex {v2:s}\n"
+                    "    endloop\n"
+                    "  endfacet\n"
+                    .format(
+                        v0=facet[0],
+                        v1=facet[1],
+                        v2=facet[2],
+                        norm=facet.norm
+                    )
+                )
+            f.write("endsolid Model\n")
+
+    def _write_binary_file(self, filename):
+        with open(filename, 'wb') as f:
+            f.write('%-80s' % 'Binary STL Model')
+            f.write(struct.pack('<I', len(self.facets)))
+            for facet in self.facets.sorted():
+                f.write(
+                    '{norm:b}{v0:b}{v1:b}{v2:b}'.format(
+                        v0=facet[0],
+                        v1=facet[1],
+                        v2=facet[2],
+                        norm=facet.norm
+                    )
+                )
+                f.write(struct.pack('<H', 0))
 
     def write_file(self, filename, binary=False):
         if binary:
@@ -325,37 +775,11 @@ class StlData(object):
         else:
             self._write_ascii_file(filename)
 
-    def _write_ascii_file(self, filename):
-        with open(filename, 'wb') as f:
-            f.write("solid Model\n")
-            for facet in self.facets:
-                v1, v2, v3, norm = facet
-                v1 = self.points.point_coords(v1)
-                v2 = self.points.point_coords(v2)
-                v3 = self.points.point_coords(v3)
-                f.write("  facet normal %s\n" % vertex_fmt(norm))
-                f.write("    outer loop\n")
-                f.write("      vertex %s\n" % vertex_fmt(v1))
-                f.write("      vertex %s\n" % vertex_fmt(v2))
-                f.write("      vertex %s\n" % vertex_fmt(v3))
-                f.write("    endloop\n")
-                f.write("  endfacet\n")
-            f.write("endsolid Model\n")
+    def _openscad_face_list(self, faces):
+        return ",\n".join("  {0:a}".format(x) for x in faces)
 
-    def _write_binary_file(self, filename):
-        with open(filename, 'wb') as f:
-            f.write('%-80s' % 'Binary STL Model')
-            f.write(struct.pack('<I', len(self.facets)))
-            for facet in self.facets:
-                v1, v2, v3, norm = facet
-                v1 = self.points.point_coords(v1)
-                v2 = self.points.point_coords(v2)
-                v3 = self.points.point_coords(v3)
-                f.write(struct.pack('<3f', *norm))
-                f.write(struct.pack('<3f', *v1))
-                f.write(struct.pack('<3f', *v2))
-                f.write(struct.pack('<3f', *v3))
-                f.write(struct.pack('<H', 0))
+    def _openscad_edge_list(self, edges):
+        return ",\n".join("  {0:a}".format(x) for x in edges)
 
     def _gui_display_manifold(self, hole_edges, dupe_edges, dupe_faces):
         global guiscad_template
@@ -364,13 +788,15 @@ class StlData(object):
             modulename = modulename[:-4]
         tmpfile = "mani-{0}.scad".format(modulename)
         with open(tmpfile, 'w') as f:
-            f.write(guiscad_template.format(
-                hole_edges=hole_edges,
-                dupe_edges=dupe_edges,
-                dupe_faces=dupe_faces,
-                modulename=modulename,
-                filename=self.filename,
-            ))
+            f.write(
+                guiscad_template.format(
+                    hole_edges=hole_edges,
+                    dupe_edges=dupe_edges,
+                    dupe_faces=dupe_faces,
+                    modulename=modulename,
+                    filename=self.filename,
+                )
+            )
         if platform.system() == 'Darwin':
             subprocess.call(['open', tmpfile])
             time.sleep(5)
@@ -380,65 +806,37 @@ class StlData(object):
         os.remove(tmpfile)
 
     def _check_manifold_duplicate_faces(self):
-        found = []
-        for face, count in self.facehash.iteritems():
-            if count != 1:
-                v1 = vertex_fmt2(self.points.point_coords(face[0]))
-                v2 = vertex_fmt2(self.points.point_coords(face[1]))
-                v3 = vertex_fmt2(self.points.point_coords(face[2]))
-                found.append((v1, v2, v3))
-        return found
+        return [facet for facet in self.facets if facet.count != 1]
 
     def _check_manifold_hole_edges(self):
-        found = []
-        for edge, count in self.edgehash.iteritems():
-            if count == 1:
-                v1 = vertex_fmt2(self.points.point_coords(edge[0]))
-                v2 = vertex_fmt2(self.points.point_coords(edge[1]))
-                found.append((v1, v2))
-        return found
+        return [edge for edge in self.edges if edge.count == 1]
 
     def _check_manifold_excess_edges(self):
-        found = []
-        for edge, count in self.edgehash.iteritems():
-            if count > 2:
-                v1 = vertex_fmt2(self.points.point_coords(edge[0]))
-                v2 = vertex_fmt2(self.points.point_coords(edge[1]))
-                found.append((v1, v2))
-        return found
+        return [edge for edge in self.edges if edge.count > 2]
 
     def check_manifold(self, verbose=False, gui=False):
         is_manifold = True
 
         faces = self._check_manifold_duplicate_faces()
-        for v1, v2, v3 in faces:
+        dupe_faces = self._openscad_face_list(faces)
+        for face in faces:
             is_manifold = False
-            print("NON-MANIFOLD DUPLICATE FACE! {3}: {0} - {1} - {2}"
-                  .format(v1, v2, v3, self.filename))
-        if gui:
-            dupe_faces = ",\n".join(
-                ["  [{0}, {1}, {2}]".format(*coords) for coords in faces]
-            )
+            print("NON-MANIFOLD DUPLICATE FACE! {0}: {1}"
+                  .format(self.filename, face))
 
         edges = self._check_manifold_hole_edges()
-        for v1, v2 in edges:
+        hole_edges = self._openscad_edge_list(edges)
+        for edge in edges:
             is_manifold = False
-            print("NON-MANIFOLD HOLE EDGE! {2}: {0} - {1}"
-                  .format(v1, v2, self.filename))
-        if gui:
-            hole_edges = ",\n".join(
-                ["  [{0}, {1}]".format(*coords) for coords in edges]
-            )
+            print("NON-MANIFOLD HOLE EDGE! {0}: {1}"
+                  .format(self.filename, edge))
 
         edges = self._check_manifold_excess_edges()
-        for v1, v2 in edges:
+        dupe_edges = self._openscad_edge_list(edges)
+        for edge in edges:
             is_manifold = False
-            print("NON-MANIFOLD DUPLICATE EDGE! {2}: {0} - {1}"
-                  .format(v1, v2, self.filename))
-        if gui:
-            dupe_edges = ",\n".join(
-                ["  [{0}, {1}]".format(*coords) for coords in edges]
-            )
+            print("NON-MANIFOLD DUPLICATE EDGE! {0}: {1}"
+                  .format(self.filename, edge))
 
         if is_manifold:
             if gui or verbose:
@@ -446,15 +844,6 @@ class StlData(object):
         elif gui:
                 self._gui_display_manifold(hole_edges, dupe_edges, dupe_faces)
         return is_manifold
-
-    def sort_facets(self):
-        self.facets = sorted(
-            self.facets,
-            cmp=lambda x, y: facet_cmp(
-                self.points.facet_coords(x),
-                self.points.facet_coords(y)
-            )
-        )
 
 
 def main():
@@ -491,7 +880,6 @@ def main():
             sys.exit(-1)
 
     if args.outfile:
-        stl.sort_facets()
         stl.write_file(args.outfile, binary=args.write_binary)
         if args.verbose:
             print("Wrote {0} ({1})".format(
