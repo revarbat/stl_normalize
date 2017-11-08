@@ -32,7 +32,7 @@ def float_fmt(val):
     Returns a short, clean floating point string representation.
     Unnecessary trailing zeroes and decimal points are trimmed off.
     """
-    s = ("%.6f" % val).rstrip('0').rstrip('.')
+    s = "{0:.6f}".format(val).rstrip('0').rstrip('.')
     return s if s != '-0' else '0'
 
 
@@ -115,7 +115,7 @@ class Vector(object):
         if "s" in fmt:
             return " ".join(vals)
         if "b" in fmt:
-            return struct.pack('<%df' % len(self._values), *self._values)
+            return struct.pack('<{0:d}f'.format(len(self._values)), *self._values)
         return "({0})".format(", ".join(vals))
 
     def __repr__(self):
@@ -759,7 +759,7 @@ class StlData(object):
 
     def _write_binary_file(self, filename):
         with open(filename, 'wb') as f:
-            f.write('%-80s' % 'Binary STL Model')
+            f.write('{0:-80s}'.format('Binary STL Model'))
             f.write(struct.pack('<I', len(self.facets)))
             for facet in self.facets.sorted():
                 f.write(struct.pack(
@@ -1225,7 +1225,7 @@ def main():
     if args.check_manifold:
         manifold = stl.check_manifold(verbose=args.verbose)
         if manifold and (args.verbose or args.gui_display):
-            print("%s is manifold." % args.infile)
+            print("{0} is manifold.".format(args.infile))
     if args.gui_display:
         stl.gui_show(wireframe=args.wireframe_only, show_facets=args.show_facets)
     if not manifold:
