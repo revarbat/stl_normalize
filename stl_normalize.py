@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import sys
 import time
 import math
@@ -7,7 +8,7 @@ import numpy
 import struct
 import numbers
 import argparse
-import platform
+import platform as plat
 import subprocess
 
 from collections import namedtuple
@@ -1111,8 +1112,8 @@ class StlData(object):
             self._view_q = self._view_q * qx * qy
             self._view_q = self._view_q.unit
         elif self._action == "ZROT":
-            oldang = atan2(self._ystart-cy, self._xstart-cx)
-            newang = atan2(y-cy, x-cx)
+            oldang = math.atan2(self._ystart-cy, self._xstart-cx)
+            newang = math.atan2(y-cy, x-cx)
             dang = newang - oldang
             qz = Quaternion(axis=[0, 0, 1], radians=dang)
             self._view_q = self._view_q * qz
@@ -1150,6 +1151,9 @@ class StlData(object):
 
         # Setup the view of the cube.
         self._gl_reshape(glutGet(GLUT_WINDOW_WIDTH), glutGet(GLUT_WINDOW_HEIGHT))
+
+        if plat.system() == "Darwin":
+            os.system('''/usr/bin/osascript -e 'tell app "Finder" to set frontmost of process "Python" to true' ''')
 
         glutMainLoop()
 
