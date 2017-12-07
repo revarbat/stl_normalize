@@ -1079,6 +1079,8 @@ class StlData(object):
                     self._action = "ZROT"
                 else:
                     self._action = "XYROT"
+            elif button == GLUT_MIDDLE_BUTTON:
+                self._action = "ZOOM"
             elif button == GLUT_RIGHT_BUTTON:
                 self._action = "TRANS"
             elif button == 3:
