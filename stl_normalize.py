@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -788,12 +788,15 @@ class StlData(object):
         if self._grid_list:
             return
 
-        xcm = int(math.ceil((self.points.maxx - self.points.minx) / 10.0)+2)
-        ycm = int(math.ceil((self.points.maxy - self.points.miny) / 10.0)+2)
-        zcm = int(math.ceil((self.points.maxz - self.points.minz) / 10.0)+2)
-        zmin = self.cx - ((self.points.maxz - self.points.minz) / 2.0)
-        ox = self.cx - xcm/2.0 * 10
-        oy = self.cy - ycm/2.0 * 10
+        xspan = self.points.maxx - self.points.minx
+        yspan = self.points.maxy - self.points.miny
+        zspan = self.points.maxz - self.points.minz
+        xcm = int(math.ceil(xspan / 10.0)+2)
+        ycm = int(math.ceil(yspan / 10.0)+2)
+        zcm = int(math.ceil(zspan / 10.0)+2)
+        zmin = -(zspan / 2.0)
+        ox = -xcm/2.0 * 10
+        oy = -ycm/2.0 * 10
 
         self._grid_list = glGenLists(1)
         glNewList(self._grid_list, GL_COMPILE)
@@ -1225,6 +1228,15 @@ def main():
             stl.points.maxx - stl.points.minx,
             stl.points.maxy - stl.points.miny,
             stl.points.maxz - stl.points.minz,
+        ))
+        print("Bounds {0} ({1:.1f} x {2:.1f} x {3:.1f}) to ({4:.1f} x {5:.1f} x {6:.1f})".format(
+            args.infile,
+            stl.points.minx,
+            stl.points.miny,
+            stl.points.minz,
+            stl.points.maxx,
+            stl.points.maxy,
+            stl.points.maxz,
         ))
 
     manifold = True
