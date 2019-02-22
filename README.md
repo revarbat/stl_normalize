@@ -7,7 +7,7 @@ Some programs (like OpenSCAD) are highly inconsistent about how they write out S
 
 There are also problems with some programs outputting STL files that are not properly formed and manifold.
 
-The stl\_normalize.py script is designed to be run from a Makefile or other build script, to normalize STL files, and verify whether the files are properly manifold. With the validation, you can force a build script to fail on a bad STL, and force the developer to tweak the model to fix the issue.  This script can (with the help of OpenSCAD) actually visually show you where the manifold problems are.
+The stl\_normalize.py script is designed to be run from a Makefile or other build script, to normalize STL files, and verify whether the files are properly manifold. With the validation, you can force a build script to fail on a bad STL, and force the developer to tweak the model to fix the issue.  This script can actually visually show you where the manifold problems are.
 
 This script does the following to normalize STL files:
 * Reorders the triangle faces in a consistent physical ordering.
