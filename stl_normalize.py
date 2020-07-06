@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -722,20 +722,25 @@ class StlData(object):
     def read_file(self, filename):
         self.filename = filename
         with open(filename, 'rb') as f:
-            line = f.readline(80)
+            line = f.readline(80).strip(b' ')
             if line == "":
                 return  # End of file.
             if line[0:6].lower() == b"solid ":
-                # Reading ASCII STL file.
-                while self._read_ascii_facet(f) is not None:
-                    pass
-            else:
-                # Reading Binary STL file.
-                chunk = f.read(4)
-                facets = struct.unpack('<I', chunk)[0]
-                for n in range(facets):
-                    if self._read_binary_facet(f) is None:
-                        break
+                # Check if file is ASCII STL.
+                pos = f.tell()
+                line = f.readline(80).strip(b' ')
+                f.seek(pos, 0)
+                if line[0:6].lower() == b"facet ":
+                    # Reading ASCII STL file.
+                    while self._read_ascii_facet(f) is not None:
+                        pass
+                    return
+            # Reading Binary STL file.
+            chunk = f.read(4)
+            facets = struct.unpack('<I', chunk)[0]
+            for n in range(facets):
+                if self._read_binary_facet(f) is None:
+                    break
 
     def _write_ascii_file(self, filename):
         with open(filename, 'wb') as f:
@@ -897,8 +902,8 @@ class StlData(object):
                 glEnd()
 
         # draw error facet edges.
-        glLineWidth(4.0)
-        self._gl_set_color(GL_FRONT_AND_BACK, [0.8, 0.0, 0.0, 1.0], shininess=0.0)
+        glLineWidth(5.0)
+        self._gl_set_color(GL_FRONT_AND_BACK, [1.0, 0.0, 0.0, 1.0], shininess=0.0)
         for edge in self.edges:
             if edge.count != 2:
                 # Draw bad edges in a highlighted color.
@@ -939,11 +944,18 @@ class StlData(object):
             glDisable(GL_CULL_FACE)
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
             glEnable(GL_POLYGON_OFFSET_FILL)
-            glPolygonOffset(-1.0, 1.0);
+            glPolygonOffset(1.0, 1.0);
             self._gl_set_color(GL_FRONT_AND_BACK, [0.0, 0.0, 0.0, 1.0], shininess=0.0)
             glCallList(self._model_list)
             glDisable(GL_POLYGON_OFFSET_FILL)
+
+        glDisable(GL_CULL_FACE)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+        glEnable(GL_POLYGON_OFFSET_FILL)
+        glPolygonOffset(2.0, 1.0);
         glCallList(self._errs_list)
+        glDisable(GL_POLYGON_OFFSET_FILL)
+
         glCallList(self._grid_list)  # draw last because transparent
 
         glPopMatrix()
